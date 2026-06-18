@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#0a0e14"/>
+  <rect x="8" y="8" width="176" height="176" rx="34" fill="#131920"/>
+  <!-- Anchor -->
+  <circle cx="96" cy="58" r="10" fill="none" stroke="#00d4ff" stroke-width="6"/>
+  <line x1="96" y1="68" x2="96" y2="138" stroke="#00d4ff" stroke-width="6" stroke-linecap="round"/>
+  <line x1="60" y1="100" x2="132" y2="100" stroke="#00d4ff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M60 100 Q48 114 60 128 Q72 140 96 140 Q120 140 132 128 Q144 114 132 100" fill="none" stroke="#00d4ff" stroke-width="6" stroke-linecap="round"/>
+  <!-- Text -->
+  <text x="96" y="170" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#00d4ff" letter-spacing="2">GBG</text>
+</svg>

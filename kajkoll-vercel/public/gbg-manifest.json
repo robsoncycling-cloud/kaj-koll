@@ -1,0 +1,16 @@
+{
+  "name": "Kajkoll – Göteborgs Hamn",
+  "short_name": "Kajkoll",
+  "description": "Lotsningar och fartygsrörelser i Göteborgs hamn",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0e14",
+  "theme_color": "#00d4ff",
+  "orientation": "portrait",
+  "lang": "sv",
+  "icons": [
+    { "src": "/gbg-icon-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/gbg-icon-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
