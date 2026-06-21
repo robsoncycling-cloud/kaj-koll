@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#00d4ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pilotwatch">
+  <meta name="description" content="Unofficial pilotage tracker for Gothenburg harbour">
+  <!-- FIX 6: PWA manifest -->
+  <link rel="manifest" href="/gbg-manifest.json">
+  <link rel="apple-touch-icon" href="/gbg-icon-192.svg">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    /* ── MAP ── */
+    #mapContainer { display:none; height:calc(100vh - 220px); min-height:400px; }
+    #mapContainer.active { display:block; }
+    .leaflet-container { background:#0a0e14; }
+
+    /* ── TIMELINE ── */
+    #timelineContainer { display:none; padding:12px 16px 80px; }
+    #timelineContainer.active { display:block; }
+    .tl-wrap { position:relative; padding-left:60px; }
+    .tl-line { position:absolute; left:48px; top:0; bottom:0; width:2px; background:var(--border); }
+    .tl-item {
+      position:relative; margin-bottom:16px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:10px 12px;
+    }
+    .tl-item.arr  { border-left:3px solid var(--green); }
+    .tl-item.dep  { border-left:3px solid var(--amber); }
+    .tl-item.act  { border-left:3px solid var(--accent); }
+    .tl-dot {
+      position:absolute; left:-37px; top:50%; transform:translateY(-50%);
+      width:12px; height:12px; border-radius:50%; border:2px solid var(--bg);
+    }
+    .tl-dot.arr { background:var(--green); }
+    .tl-dot.dep { background:var(--amber); }
+    .tl-dot.act { background:var(--accent); }
+    .tl-time { position:absolute; left:-56px; top:50%; transform:translateY(-50%);
+      font-size:11px; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; text-align:right; width:40px; }
+    .tl-name { font-size:16px; font-weight:700; color:var(--text); }
+    .tl-name.arr { color:var(--green); }
+    .tl-name.dep { color:var(--amber); }
+    .tl-name.act { color:var(--accent); }
+    .tl-sub  { font-size:11px; color:var(--muted); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; }
+    .tl-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; }
+    .tl-badge.arr { background:var(--green-dim); color:var(--green); }
+    .tl-badge.dep { background:var(--amber-dim); color:var(--amber); }
+    .tl-badge.act { background:var(--accent-dim); color:var(--accent); }
+    .tl-now { position:relative; margin-bottom:16px; padding-left:0; }
+    .tl-now-line { height:2px; background:var(--accent); margin-left:-4px; position:relative; }
+    .tl-now-label { position:absolute; left:-56px; top:-8px; font-size:10px; font-weight:700; color:var(--accent); }
+  </style>
+  <link rel="apple-touch-icon" href="/gbg-icon-192.svg">
+  <title>Pilotwatch – Gothenburg Pilotage</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --surface: #131920;
+      --surface2: #1c2330;
+      --border: #2a3441;
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --accent: #00d4ff;
+      --accent-dim: rgba(0,212,255,0.12);
+      --green: #3fb950;
+      --green-dim: rgba(63,185,80,0.15);
+      --amber: #e3b341;
+      --amber-dim: rgba(227,179,65,0.15);
+      --blue: #388bfd;
+      --blue-dim: rgba(56,139,253,0.15);
+      --purple: #bc8cff;
+      --purple-dim: rgba(188,140,255,0.15);
+    }
+
+    /* FIX 7: Respect reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      min-height: 100dvh;
+      padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+    }
+
+    /* FIX 8: Max-width for desktop */
+    .page-wrap { max-width: 680px; margin: 0 auto; }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(10,14,20,0.95);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      padding: 11px 16px 9px;
+    }
+    .topbar-row1 {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 9px;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; }
+    .logo-icon { font-size: 22px; }
+    .logo-text { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; color: var(--accent); }
+    .logo-sub  { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    .topbar-btns { display: flex; gap: 6px; }
+    /* FIX 9: min 44px tap targets on all buttons */
+    .btn {
+      min-height: 44px;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 8px; padding: 6px 12px;
+      font-size: 13px; cursor: pointer; text-decoration: none;
+      display: flex; align-items: center; gap: 5px;
+      transition: color 0.15s, border-color 0.15s; white-space: nowrap;
+    }
+    .btn:active { color: var(--text); background: var(--surface); }
+    .spin-icon { display: inline-block; }
+    .spinning .spin-icon { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .date-input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 15px;
+      padding: 9px 12px; -webkit-appearance: none;
+      min-height: 44px;
+    }
+    .date-input:focus { outline: none; border-color: var(--blue); }
+
+    /* ── WEATHER BAR ── */
+    .weather-bar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 16px; background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .weather-bar::-webkit-scrollbar { display: none; }
+    .weather-bar.hidden { display: none; }
+    .wx-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; flex-shrink: 0; }
+    .wx-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .wx-val   { font-size: 14px; font-weight: 600; }
+    .wx-sep   { color: var(--border); }
+    .wx-src   { font-size: 10px; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+
+    /* ── FILTERS ── */
+    .filters-wrap { position: relative; }
+    .filters-wrap::after {
+      content: ''; position: absolute; right: 0; top: 0; bottom: 0;
+      width: 28px; background: linear-gradient(to right, transparent, var(--bg));
+      pointer-events: none;
+    }
+    .filters {
+      display: flex; gap: 6px; padding: 8px 16px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .filters::-webkit-scrollbar { display: none; }
+    .chip {
+      flex-shrink: 0; background: var(--surface); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 99px;
+      padding: 7px 14px; font-size: 13px; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+      min-height: 38px; display: inline-flex; align-items: center;
+    }
+    .chip.active {
+      background: var(--accent-dim); border-color: var(--accent);
+      color: var(--accent); font-weight: 600;
+    }
+
+    /* ── STATS ── */
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 8px; padding: 0 16px 10px;
+    }
+    /* FIX 9: Stats clickable with tap feedback */
+    .stat {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 6px; text-align: center;
+      cursor: pointer; transition: border-color 0.15s;
+    }
+    .stat:hover  { border-color: var(--muted); }
+    .stat:active { background: var(--surface2); }
+    .stat-num   { font-size: 22px; font-weight: 600; line-height: 1; }
+    .stat-label { font-size: 10px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-num.green  { color: var(--green); }
+    .stat-num.amber  { color: var(--amber); }
+    .stat-num.blue   { color: var(--blue); }
+    .stat-num.accent { color: var(--accent); }
+
+    /* ── CARDS ── */
+    .list { padding: 0 12px 80px; display: flex; flex-direction: column; gap: 8px; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 10px;
+      transition: border-color 0.15s;
+    }
+    .card:active { background: var(--surface2); }
+    .card.pagaende { border-left-color: var(--green); }
+    .card.avslutad { border-left-color: var(--border); opacity: 0.8; }
+
+    .card-top {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 8px;
+    }
+    .card-name {
+      font-size: 20px; font-weight: 700; letter-spacing: -0.3px;
+      line-height: 1.15; flex: 1; color: var(--accent);
+    }
+    .card.pagaende .card-name { color: var(--green); }
+
+    .badge {
+      flex-shrink: 0; font-size: 11px; font-weight: 500;
+      padding: 3px 9px; border-radius: 99px;
+    }
+    .badge-pagaende  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(63,185,80,0.3); }
+    .badge-avslutad  { background: var(--surface2);   color: var(--muted);  border: 1px solid var(--border); }
+    .badge-definitiv { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(56,139,253,0.3); }
+    .badge-bekraftad { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+    .badge-preliminar{ background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(227,179,65,0.3); }
+
+    .card-route {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 14px; color: var(--text);
+      min-width: 0;
+    }
+    .dir-label {
+      font-size: 11px; font-weight: 600; padding: 2px 7px;
+      border-radius: 4px; flex-shrink: 0;
+    }
+    .dir-in     { background: rgba(63,185,80,0.12); color: var(--green); }
+    .dir-out    { background: rgba(227,179,65,0.12); color: var(--amber); }
+    .dir-intern { background: var(--surface2); color: var(--muted); }
+    .route-arrow { color: var(--border); font-size: 12px; flex-shrink: 0; }
+    /* FIX 9: Route text truncation improved */
+    .route-from, .route-to {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+
+    .card-times {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      background: var(--surface2); border-radius: 8px; padding: 8px 10px;
+    }
+    .time-item   { display: flex; flex-direction: column; gap: 2px; }
+    .time-label  { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .time-val    { color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* FIX 9: Bigger link tap targets */
+    .card-links { display: flex; gap: 7px; padding-top: 4px; border-top: 1px solid var(--border); }
+    .ext-link {
+      flex: 1; text-align: center; font-size: 12px; color: var(--muted);
+      text-decoration: none; padding: 10px 4px;
+      background: var(--surface2); border-radius: 8px; border: 1px solid var(--border);
+      min-height: 44px; display: flex; align-items: center; justify-content: center;
+      transition: color 0.12s, background 0.12s;
+    }
+    .ext-link:hover  { color: var(--text); background: var(--border); }
+    .ext-link:active { color: var(--text); }
+
+    /* ── STATES ── */
+    .state-box   { text-align: center; padding: 48px 24px; color: var(--muted); }
+    .state-icon  { font-size: 40px; margin-bottom: 12px; }
+    .state-title { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+    .state-sub   { font-size: 13px; line-height: 1.5; }
+    .state-sub a { color: var(--accent); }
+
+    .skeleton { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .skel-line { background: var(--surface2); border-radius: 4px; height: 14px; animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .updated-bar { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 16px 6px; }
+
+    /* ── TABS ── */
+    .tabs-wrap { position: relative; border-bottom: 1px solid var(--border); }
+    .tabs-wrap::after {
+      content: ''; position: absolute; right: 0; top: 0; bottom: 0;
+      width: 28px; background: linear-gradient(to right, transparent, var(--bg));
+      pointer-events: none;
+    }
+    .tabs { display: flex; overflow-x: auto; scrollbar-width: none; padding: 0 16px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      flex-shrink: 0; padding: 10px 14px; font-size: 13px; font-weight: 500;
+      color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer;
+      white-space: nowrap; min-height: 44px; display: flex; align-items: center;
+      transition: color .15s;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── AIS CARDS ── */
+    .card.ais-inport { border-left-color: var(--blue); }
+    .card.ais-inport .card-name { color: var(--blue); }
+    .card.ais-inbound { border-left-color: var(--green); }
+    .card.ais-inbound .card-name { color: var(--green); }
+    .ais-badge {
+      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 99px;
+      background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(56,139,253,0.3);
+    }
+    .ais-badge.inbound {
+      background: var(--green-dim); color: var(--green); border-color: rgba(63,185,80,0.3);
+    }
+    .live-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--green); margin-right: 4px; animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    @keyframes warnBlink { 0%,100%{background:var(--surface2)} 50%{background:rgba(248,81,73,0.15)} }
+
+    /* FIX 9: Toast for feedback */
+    .toast {
+      position: fixed; bottom: calc(env(safe-area-inset-bottom) + 20px); left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); padding: 10px 18px; border-radius: 99px;
+      font-size: 13px; font-weight: 500; z-index: 100;
+      box-shadow: 0 4px 24px rgba(0,0,0,.4);
+      transition: transform .3s ease; white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div class="page-wrap">
+
+<div class="topbar">
+  <div class="topbar-row1">
+    <div class="logo">
+      <div>
+        <div style="line-height:1.1">
+          <div style="font-size:15px;font-weight:700;letter-spacing:1.5px;color:var(--accent)">PILOT</div>
+          <div style="font-size:15px;font-weight:300;letter-spacing:4px;color:var(--muted)">WATCH</div>
+        </div>
+        <div class="logo-sub">Pilotwatch · Gothenburg</div>
+      </div>
+    </div>
+    <div class="topbar-btns">
+      <a class="btn" href="https://www.goteborgshamn.se/operations/ankomster-avgangar/" target="_blank" rel="noopener">⚓ Port of Gbg</a>
+      <button class="btn" onclick="load()" id="refreshBtn"><span class="spin-icon">↻</span> Refresh</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <input type="date" class="date-input" id="dateInput" style="flex:1">
+    <button class="btn" id="pushBtn" onclick="togglePush()">🔔 Notify</button>
+  </div>
+  <div style="position:relative">
+    <input class="date-input" id="searchInput" type="search" placeholder="🔍 Search vessel, from, to…" oninput="onSearch(this.value)" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding-right:40px">
+    <button id="searchClear" onclick="clearSearch()" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;width:40px;height:44px;display:none;align-items:center;justify-content:center">✕</button>
+  </div>
+</div>
+
+<!-- Push banner -->
+<div id="pushBanner" style="display:none;margin:8px 14px;padding:11px 13px;background:var(--surface);border:1px solid var(--amber);border-radius:10px;align-items:center;gap:10px">
+  <div>🔔</div>
+  <div style="flex:1;font-size:13px">Get notified when vessels arrive at berth<div style="font-size:11px;color:var(--muted);margin-top:2px">Enable push for real-time updates</div></div>
+  <button onclick="enablePush()" style="background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;min-height:44px">Enable</button>
+  <button onclick="dismissBanner('pushBanner')" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:6px">✕</button>
+</div>
+
+<!-- Weather -->
+<div class="weather-bar hidden" id="weatherBar">
+  <span id="wxIcon" style="font-size:18px;flex-shrink:0">🌤</span>
+  <div class="wx-item"><span class="wx-label">Temp</span><span class="wx-val" id="wxTemp">–</span></div>
+  <span class="wx-sep">·</span>
+  <div class="wx-item"><span class="wx-label">Wind</span><span class="wx-val" id="wxWind">–</span></div>
+  <span class="wx-sep">·</span>
+  <div class="wx-item"><span class="wx-label">Dir</span><span class="wx-val" id="wxDir">–</span></div>
+  <span class="wx-sep">·</span>
+  <div class="wx-item"><span class="wx-label">Sea level</span><span class="wx-val" id="wxSea" style="color:var(--blue)">–</span></div>
+  <span class="wx-src">Gothenburg</span>
+</div>
+<div id="wxWarnBanner" style="display:none;padding:8px 16px;font-size:12px;font-weight:600;border-bottom:1px solid var(--border)"></div>
+<!-- Tabs -->
+<div class="tabs-wrap">
+  <div class="tabs">
+    <div class="tab active" id="tab-lotsning" onclick="setTab('lotsning',this)">⚓ Pilotage</div>
+    <div class="tab" id="tab-timeline" onclick="setTab('timeline',this)">📅 Timeline</div>
+    <div class="tab" id="tab-inport" onclick="setTab('inport',this)">🚢 Live in Port</div>
+    <div class="tab" id="tab-inbound" onclick="setTab('inbound',this)">↓ Inbound</div>
+    <div class="tab" id="tab-map" onclick="setTab('map',this)">🗺️ Map</div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat" onclick="jumpFilter('all')" title="Show all">
+    <div class="stat-num accent" id="sTotal">–</div><div class="stat-label">Pilotage</div>
+  </div>
+  <div class="stat" onclick="jumpFilter('pagaende')" title="Show active">
+    <div class="stat-num green" id="sPag">–</div><div class="stat-label">Active</div>
+  </div>
+  <div class="stat" onclick="jumpToTab('inport')" title="Live in Port">
+    <div class="stat-num blue" id="sPort">–</div><div class="stat-label">In Port</div>
+  </div>
+  <div class="stat" onclick="jumpToTab('inbound')" title="Inbound">
+    <div class="stat-num amber" id="sInbound">–</div><div class="stat-label">Inbound</div>
+  </div>
+</div>
+
+<!-- Pilotage filters (shown on Pilotage tab only) -->
+<div id="filterWrap">
+  <div class="filters" id="filters">
+    <button class="chip active" onclick="setFilter('alla', this)">All</button>
+    <button class="chip" onclick="setFilter('pagaende', this)">🟢 Active</button>
+    <button class="chip" onclick="setFilter('ankomst', this)">↓ Arrival</button>
+    <button class="chip" onclick="setFilter('avgang', this)">↑ Departure</button>
+  </div>
+</div>
+
+<div class="updated-bar" id="updatedBar"></div>
+<div class="list" id="list"></div>
+<div id="timelineContainer"></div>
+<div id="mapContainer"></div>
+
+</div><!-- /page-wrap -->
+
+<script>
+let allVessels   = [];
+let currentFilter = 'alla';
+let currentTab    = 'lotsning';
+let toastTimer    = null;
+
+// ── AISSTREAM ──────────────────────────────────────────────
+const AISSTREAM_KEY = '921cba10639c47d53dd878232f2a76e4ac83fedd';
+const GBG_BBOX = [[57.45, 11.40], [57.95, 12.30]]; // Utökad bbox — täcker hela fjorden
+const GBG_DEST_TERMS = ['gothenburg','goteborg','göteborg','segot','se got','se gbg',
+  'gbg','skandia','skarvik','arendal','torshamnen','energi','frihamnen','rvt'];
+
+let aisVessels = {}, aisWs = null, aisTimer = null;
+
+const AIS_TYPE_MAP = {
+  // Tanker 80-89
+  80:'tanker',81:'tanker',82:'tanker',83:'tanker',84:'tanker',
+  85:'tanker',86:'tanker',87:'tanker',88:'tanker',89:'tanker',
+  // Container 70-79
+  70:'container',71:'container',72:'container',73:'container',74:'container',
+  75:'container',76:'container',77:'container',78:'container',79:'container',
+  // Bulk 60-69
+  60:'bulk',61:'bulk',62:'bulk',63:'bulk',64:'bulk',
+  65:'bulk',66:'bulk',67:'bulk',68:'bulk',69:'bulk',
+  // Ro-Ro 55-58 only (pure Ro-Ro vessels)
+  55:'roro',56:'roro',57:'roro',58:'roro',
+  // Passenger 40-49
+  40:'passenger',41:'passenger',42:'passenger',43:'passenger',44:'passenger',
+  45:'passenger',46:'passenger',47:'passenger',48:'passenger',49:'passenger',
+  // Service/Special craft 50-54 — tugs, pilot vessels, rescue etc
+  50:'service',51:'service',52:'service',53:'service',54:'service',
+  // Service 30-37
+  30:'service',31:'service',32:'service',33:'service',34:'service',
+  35:'service',36:'service',37:'service',
+};
+const TYPE_INFO = {
+  tanker:{label:'Tanker',emoji:'🛢️'}, container:{label:'Container',emoji:'📦'},
+  bulk:{label:'Bulk',emoji:'🏗️'}, roro:{label:'Ro-Ro',emoji:'🚗'},
+  passenger:{label:'Passagerar',emoji:'🚢'}, service:{label:'Service',emoji:'⚙️'},
+  other:{label:'Other',emoji:'🚤'},
+};
+function getTypeInfo(code) { const k=AIS_TYPE_MAP[code]||'other'; return {key:k,...(TYPE_INFO[k]||TYPE_INFO.other)}; }
+function isGbgBound(dest) { if(!dest) return false; const d=dest.toLowerCase(); return GBG_DEST_TERMS.some(t=>d.includes(t)); }
+
+async function decodeAISMsg(data) {
+  if (typeof data==='string') return data;
+  if (!(data instanceof Blob)) return null;
+  const text = await data.text();
+  if (text.startsWith('{')) return text;
+  for (const fmt of ['gzip','deflate','deflate-raw']) {
+    try {
+      const ds=new DecompressionStream(fmt);
+      const ab=await data.arrayBuffer();
+      const stream=new Blob([ab]).stream().pipeThrough(ds);
+      const reader=stream.getReader(); const chunks=[];
+      while(true){const{done,value}=await reader.read();if(done)break;chunks.push(value);}
+      const decoded=new TextDecoder().decode(new Uint8Array(chunks.reduce((a,b)=>[...a,...b],[])));
+      if(decoded.startsWith('{')) return decoded;
+    } catch(e){}
+  }
+  return null;
+}
+
+function connectAISStream() {
+  if (aisWs) { try{aisWs.close();}catch(e){} }
+  aisWs = new WebSocket('wss://stream.aisstream.io/v0/stream');
+
+  // iOS Safari timeout — retry if no data within 8 seconds
+  let dataReceived = false;
+  const iosTimeout = setTimeout(() => {
+    if (!dataReceived && aisWs.readyState === 1) {
+      aisWs.close();
+      connectAISStream();
+    }
+  }, 8000);
+
+  aisWs.onopen = () => {
+    aisWs.send(JSON.stringify({APIKey:AISSTREAM_KEY,BoundingBoxes:[GBG_BBOX],FilterMessageTypes:['PositionReport','ShipStaticData']}));
+  };
+  aisWs.onmessage = async (evt) => {
+    dataReceived = true;
+    clearTimeout(iosTimeout);
+    try {
+      const text = await decodeAISMsg(evt.data);
+      if (!text) return;
+      const msg = JSON.parse(text);
+      const mmsi = String(msg.MetaData?.MMSI||'');
+      if (!mmsi) return;
+      const meta=msg.MetaData||{}, pos=msg.Message?.PositionReport||{}, stat=msg.Message?.ShipStaticData||{};
+      const name=(stat.Name||meta.ShipName||aisVessels[mmsi]?.name||'').trim().toUpperCase();
+      const typeCode=stat.Type||aisVessels[mmsi]?.typeCode||0;
+      const typeInfo=getTypeInfo(typeCode);
+      const navStat=pos.NavigationalStatus??aisVessels[mmsi]?.navStat??0;
+      const sog=pos.Sog??aisVessels[mmsi]?.sog??0;
+      const dest=(stat.Destination||aisVessels[mmsi]?.destination||'').trim();
+      // Accept vessel even without name — use existing name or MMSI as placeholder
+      const displayName = name && name !== 'UNKNOWN' && name.length >= 2 ? name : (aisVessels[mmsi]?.name || '');
+      if (!displayName && !pos.Latitude) return; // skip if no position and no name
+      aisVessels[mmsi]={
+        name: displayName || `MMSI:${mmsi}`,
+        mmsi, imo:stat.ImoNumber?String(stat.ImoNumber):(aisVessels[mmsi]?.imo||''),
+        typeCode,typeKey:typeInfo.key,typeLabel:typeInfo.label,typeEmoji:typeInfo.emoji,
+        navStat,sog,
+        lat: pos.Latitude  ?? aisVessels[mmsi]?.lat ?? null,
+        lon: pos.Longitude ?? aisVessels[mmsi]?.lon ?? null,
+        destination:dest,gbgBound:isGbgBound(dest),
+        time:new Date().toTimeString().slice(0,5),lastSeen:Date.now()};
+    } catch(e){}
+    clearTimeout(aisTimer);
+    if (Object.keys(aisVessels).length === 1) {
+      renderAIS(); // render immediately on first vessel
+    } else {
+      aisTimer = setTimeout(() => renderAIS(), 500);
+    }
+  };
+  aisWs.onerror = ()=>{};
+  aisWs.onclose = ()=>{ setTimeout(()=>connectAISStream(), 15000); };
+}
+
+function renderAIS() {
+  saveAISCache();
+  const cutoff = Date.now()-15*60*1000;
+
+  // Commercial types only — exclude small recreational boats
+  const isCommercial = v => {
+    const t = v.typeCode;
+    if (t >= 40 && t <= 89) return true;  // Passenger, Service, Bulk, Container, Tanker
+    if (v.gbgBound) return true;           // Any vessel heading to Gothenburg
+    return false;
+  };
+
+  const fresh = Object.values(aisVessels).filter(v =>
+    v.lastSeen > cutoff &&
+    !v.name.startsWith('MMSI:') &&
+    isCommercial(v)
+  );
+
+  // Port terminals in Gothenburg — only show vessels docked here
+  const GBG_TERMINALS = [
+    'skandia','skarvik','energi','arendal','torshamnen',
+    'oljehamnen','gothenburg','goteborg','göteborg','segot',
+    'gbg','petrohav','stenungsund','lysekil'
+  ];
+
+  const isAtGbgPort = v => {
+    if (!v.destination) return false;
+    const d = v.destination.toLowerCase();
+    return GBG_TERMINALS.some(t => d.includes(t));
+  };
+
+  const INPORT=[1,5,6,7,8];
+  // In Port: commercial vessels docked at Gothenburg terminals
+  const inport  = fresh.filter(v => INPORT.includes(v.navStat) && (isAtGbgPort(v) || v.gbgBound));
+  const inbound = fresh.filter(v => v.gbgBound && !INPORT.includes(v.navStat));
+
+  document.getElementById('sPort').textContent    = inport.length;
+  document.getElementById('sInbound').textContent = inbound.length;
+
+  const now = new Date();
+  if (currentTab==='inport'||currentTab==='inbound') {
+    document.getElementById('updatedBar').textContent =
+      `🟢 Live · ${fresh.length} vessels · AISStream · ${now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+  }
+  if (currentTab==='inport')  renderAISList(inport,  'inport');
+  if (currentTab==='inbound') renderAISList(inbound, 'inbound');
+}
+
+function renderAISList(vessels, type) {
+  const listEl = document.getElementById('list');
+  if (!vessels.length) {
+    listEl.innerHTML = `<div class="state-box">
+      <div class="state-icon">${type==='inbound'?'🔭':'⚓'}</div>
+      <div class="state-title">${type==='inbound'?'No inbound vessels':'No vessels in port'}</div>
+      <div class="state-sub">${type==='inbound'?'Updating — please chill 🛳️':'Vessels in port · please chill 🛳️'}</div>
+    </div>`;
+    return;
+  }
+  const cardCls = type==='inport'?'ais-inport':'ais-inbound';
+  listEl.innerHTML = `<div class="list">
+    <div class="section-hdr" style="padding:4px 2px 6px">
+      <span class="live-dot"></span>${type==='inport'?'Vessels in Port of Gothenburg':'Inbound to Gothenburg'} · ${vessels.length} vessels
+    </div>
+    ${vessels.slice(0,50).map(v=>`<div class="card ${cardCls}">
+      <div class="card-top">
+        <div class="card-name">${esc(v.name)}</div>
+        <div style="display:flex;gap:5px;align-items:center">${v.typeEmoji} <span class="ais-badge${type==='inbound'?' inbound':''}">${esc(v.typeLabel)}</span></div>
+      </div>
+      ${v.destination?`<div class="card-route">
+        <span class="dir-label ${type==='inbound'?'dir-in':'dir-intern'}">${type==='inbound'?'↓ Inbound':'⚓ Moored'}</span>
+        <span style="font-size:13px;color:var(--muted)">→ ${esc(v.destination)}</span>
+      </div>`:''}
+      <div class="card-links">
+        
+        <a class="ext-link" href="https://www.vesselfinder.com/?mmsi=${v.mmsi}" target="_blank" rel="noopener">🔭 VesselFinder</a>
+        <a class="ext-link" href="https://www.goteborgshamn.se/operations/ankomster-avgangar/" target="_blank" rel="noopener">⚓ Port of Gbg</a>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── FLIK-BYTE ─────────────────────────────────────────────
+function setTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const fw  = document.getElementById('filterWrap');
+  const lst = document.getElementById('list');
+  const tlc = document.getElementById('timelineContainer');
+  const mc  = document.getElementById('mapContainer');
+
+  // Hide all content areas
+  lst.style.display = 'none';
+  tlc.classList.remove('active');
+  mc.classList.remove('active');
+  if(fw) fw.style.display = 'none';
+
+  if (tab === 'lotsning') {
+    lst.style.display = '';
+    if(fw) fw.style.display = '';
+    render();
+  } else if (tab === 'timeline') {
+    tlc.classList.add('active');
+    renderTimeline();
+  } else if (tab === 'map') {
+    mc.classList.add('active');
+    renderMap();
+  } else {
+    lst.style.display = '';
+    renderAIS();
+  }
+}
+
+// ── TIMELINE ──────────────────────────────────────────────
+function renderTimeline() {
+  const container = document.getElementById('timelineContainer');
+  if (!allVessels.length) {
+    container.innerHTML = `<div class="state-box">
+      <div class="state-icon">📅</div>
+      <div class="state-title">No pilotage data</div>
+      <div class="state-sub">Loading pilotage data — please chill ⚓</div>
+    </div>`;
+    return;
+  }
+
+  // Sort by planned start time
+  const sorted = [...allVessels]
+    .filter(v => v.planadStart || v.started)
+    .sort((a,b) => (a.planadStart||a.started||'').localeCompare(b.planadStart||b.started||''));
+
+  const nowStr = new Date().toTimeString().slice(0,5);
+  let nowInserted = false;
+  let html = `<div class="tl-wrap"><div class="tl-line"></div>`;
+
+  for (const v of sorted) {
+    const time = fmtTime(v.planadStart || v.started);
+    const isActive = (v.status||'').toLowerCase().includes('pågående') || (v.status||'').toLowerCase().includes('active');
+    const isArr = isAnkomst(v);
+    const cls = isActive ? 'act' : isArr ? 'arr' : 'dep';
+    const label = isActive ? 'Active' : isArr ? 'Arrival' : 'Departure';
+    const from = esc((v.fran||'').replace(/^\d+\s*/,'').slice(0,20));
+    const to   = esc((v.till||'').replace(/^\d+\s*/,'').slice(0,20));
+
+    // Insert "NOW" line
+    if (!nowInserted && time !== '–' && time > nowStr) {
+      nowInserted = true;
+      html += `<div class="tl-now">
+        <div class="tl-now-line"></div>
+        <span class="tl-now-label">NOW ${nowStr}</span>
+      </div>`;
+    }
+
+    html += `<div class="tl-item ${cls}">
+      <div class="tl-dot ${cls}"></div>
+      <div class="tl-time">${time}</div>
+      <div class="tl-name ${cls}">${esc(cleanName(v.name))}</div>
+      <div class="tl-sub">
+        <span class="tl-badge ${cls}">${label}</span>
+        ${from ? `<span>${from} → ${to}</span>` : ''}
+        ${v.finished && fmtTime(v.finished) !== '–' ? `<span>Done ${fmtTime(v.finished)}</span>` : ''}
+      </div>
+    </div>`;
+  }
+
+  if (!nowInserted) {
+    html += `<div class="tl-now"><div class="tl-now-line"></div><span class="tl-now-label">NOW</span></div>`;
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+// ── MAP ───────────────────────────────────────────────────
+let leafletMap = null;
+let mapMarkers = [];
+
+function renderMap() {
+  const container = document.getElementById('mapContainer');
+
+  // Init map once
+  if (!leafletMap) {
+    leafletMap = L.map('mapContainer', {
+      center: [57.68, 11.92],
+      zoom: 12,
+      zoomControl: true,
+    });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(leafletMap);
+  } else {
+    leafletMap.invalidateSize();
+  }
+
+  // Clear old markers
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
+
+  const cutoff = Date.now() - 15*60*1000;
+  const fresh = Object.values(aisVessels).filter(v => v.lastSeen > cutoff && v.lat && v.lon);
+
+  if (!fresh.length) {
+    // Show placeholder text on map
+    return;
+  }
+
+  const INPORT_STATS = [1,5,6,7,8];
+
+  fresh.forEach(v => {
+    const inport = INPORT_STATS.includes(v.navStat);
+    const color  = inport ? '#4da6ff' : v.gbgBound ? '#3fb950' : '#f0b429';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:10px;height:10px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.5);box-shadow:0 0 4px ${color}"></div>`,
+      iconSize: [10,10],
+      iconAnchor: [5,5],
+    });
+    const marker = L.marker([v.lat, v.lon], {icon})
+      .bindPopup(`<b>${v.name}</b><br>${v.typeLabel}${v.destination?`<br>→ ${v.destination}`:''}`)
+      .addTo(leafletMap);
+    mapMarkers.push(marker);
+  });
+
+  // Legend
+  if (!document.getElementById('mapLegend')) {
+    const legend = L.control({position:'bottomright'});
+    legend.onAdd = () => {
+      const d = L.DomUtil.create('div');
+      d.id = 'mapLegend';
+      d.style.cssText = 'background:rgba(10,14,20,0.9);padding:8px 12px;border-radius:8px;font-size:11px;color:#f0f4fc;border:1px solid #2a3441';
+      d.innerHTML = `<div style="margin-bottom:4px"><span style="color:#4da6ff">●</span> In port</div>
+        <div style="margin-bottom:4px"><span style="color:#3fb950">●</span> Inbound</div>
+        <div><span style="color:#f0b429">●</span> Other</div>`;
+      return d;
+    };
+    legend.addTo(leafletMap);
+  }
+}
+
+function degreesToCompass(deg) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function renderWeather(wx) {
+  if (!wx) return;
+  document.getElementById('wxTemp').textContent = wx.temp || '–';
+  document.getElementById('wxWind').textContent = wx.wind || '–';
+  document.getElementById('wxDir').textContent  = wx.dir  || '–';
+  if (wx.sea) document.getElementById('wxSea').textContent = wx.sea;
+  const windMs = parseFloat(wx.wind) || 0;
+  const tempC  = parseFloat(wx.temp) || 10;
+  let icon = '🌤';
+  if (windMs >= 17.5)     icon = '🌀';
+  else if (windMs >= 11)  icon = '🌬️';
+  else if (windMs >= 5.5) icon = '💨';
+  else if (tempC <= 0)    icon = '❄️';
+  else if (tempC <= 5)    icon = '🌨';
+  else if (tempC >= 20)   icon = '☀️';
+  document.getElementById('wxIcon').textContent = icon;
+  document.getElementById('weatherBar').classList.remove('hidden');
+}
+
+async function fetchWeatherDirect() {
+  try {
+    const [tRes, wRes, dRes, sRes] = await Promise.all([
+      fetch('https://opendata-download-metobs.smhi.se/api/version/latest/parameter/1/station/71420/period/latest-hour/data.json').catch(()=>null),
+      fetch('https://opendata-download-metobs.smhi.se/api/version/latest/parameter/4/station/71420/period/latest-hour/data.json').catch(()=>null),
+      fetch('https://opendata-download-metobs.smhi.se/api/version/latest/parameter/3/station/71420/period/latest-hour/data.json').catch(()=>null),
+      fetch('https://opendata-download-ocobs.smhi.se/api/version/latest/parameter/12/station/33097/period/latest-hour/data.json').catch(()=>null),
+    ]);
+    const tData = tRes?.ok ? await tRes.json() : null;
+    const wData = wRes?.ok ? await wRes.json() : null;
+    const dData = dRes?.ok ? await dRes.json() : null;
+    const sData = sRes?.ok ? await sRes.json() : null;
+
+    const tempVal = tData?.value?.[tData.value.length-1]?.value;
+    const windVal = wData?.value?.[wData.value.length-1]?.value;
+    const dirVal  = dData?.value?.[dData.value.length-1]?.value;
+    const seaVal  = sData?.value?.[sData.value.length-1]?.value;
+
+    const wx = {
+      temp: tempVal !== undefined ? parseFloat(tempVal).toFixed(1) + '°C' : '–',
+      wind: windVal !== undefined ? parseFloat(windVal).toFixed(1) + ' m/s' : '–',
+      dir:  dirVal  !== undefined ? degreesToCompass(parseFloat(dirVal)) : '–',
+      sea:  seaVal  !== undefined ? (parseFloat(seaVal)>=0?'+':'') + parseFloat(seaVal).toFixed(0) + ' cm' : null,
+    };
+    renderWeather(wx);
+  } catch(e) {}
+
+  // Fetch SMHI weather warnings for Västra Götaland (county 14)
+  try {
+    const warnRes = await fetch('https://opendata-download-warnings.smhi.se/api/version/2/messages.json');
+    if (warnRes.ok) {
+      const warnData = await warnRes.json();
+      const now = Date.now();
+      // Filter for Gothenburg area (Västra Götaland = SE-O) and active warnings
+      const active = (warnData.message || []).filter(w => {
+        const area = JSON.stringify(w.area || '');
+        const isGbg = area.includes('Västra Götaland') || area.includes('SE-O') || area.includes('14');
+        const isActive = new Date(w.effective || 0) <= now && new Date(w.expires || 0) >= now;
+        return isGbg && isActive;
+      });
+      const warnEl = document.getElementById('wxWarn');
+      if (active.length > 0) {
+        const worst = active.reduce((a,b) => (b.severity||'').localeCompare(a.severity||'') > 0 ? b : a);
+        const sev = worst.severity || 'Warning';
+        const color = sev === 'Extreme' ? '#f85149' : sev === 'Severe' ? '#f0b429' : '#4da6ff';
+        warnEl.style.color = color;
+        warnEl.style.background = color + '22';
+        warnEl.style.borderColor = color + '66';
+        warnEl.style.display = 'inline';
+        warnEl.textContent = `⚠️ ${active.length} warning${active.length>1?'s':''}`;
+        warnEl.title = active.map(w => w.event || w.headline || sev).join('\n');
+
+        // Blink the whole weather bar for severe/extreme warnings
+        const bar = document.getElementById('weatherBar');
+        if (sev === 'Extreme') {
+          bar.style.animation = 'warnBlink 1s ease-in-out infinite';
+          bar.style.borderColor = '#f85149';
+        } else if (sev === 'Severe') {
+          bar.style.animation = 'warnBlink 2s ease-in-out infinite';
+          bar.style.borderColor = '#f0b429';
+        }
+      } else {
+        document.getElementById('wxWarn').style.display = 'none';
+        document.getElementById('weatherBar').style.animation = '';
+        document.getElementById('weatherBar').style.borderColor = '';
+      }
+    }
+  } catch(e) {}
+}
+
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+
+// Toast
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Date input
+const dateInput = document.getElementById('dateInput');
+dateInput.value = todayStr();
+dateInput.addEventListener('change', load);
+
+// Filters
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.chip').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}
+
+// FIX 9: Jump filter from stat click
+function jumpToTab(tab) {
+  const btn = document.getElementById('tab-' + tab);
+  if (btn) setTab(tab, btn);
+}
+
+function jumpFilter(f) {
+  const chips = document.querySelectorAll('.chip');
+  const map = { alla: 0, pagaende: 1, ankomst: 2, avgang: 3 };
+  const idx = map[f];
+  if (idx !== undefined && chips[idx]) setFilter(f, chips[idx]);
+}
+
+// Detect direction
+const GBG_TERMS = ['skandia','torshamnen','skarvik','arendal','energihamnen','eriksberg',
+  'majnabbe','frihamnen','älvsborg','rya','rvt','gbg','göteborg','gothenburg','oljehamnen',
+  'stena','tingstadstunneln'];
+
+function isAnkomst(v) {
+  const to = (v.till || '').toLowerCase();
+  return GBG_TERMS.some(k => to.includes(k)) || /\b[56789]\d{2}\b/.test(to);
+}
+function isAvgang(v) {
+  const from = (v.fran || '').toLowerCase();
+  return GBG_TERMS.some(k => from.includes(k)) || /\b[56789]\d{2}\b/.test(from);
+}
+
+function statusInfo(s) {
+  const sl = (s || '').toLowerCase();
+  if (sl.includes('pågående') || sl.includes('pagaende')) return { cls: 'badge-pagaende', cardCls: 'pagaende', label: 'Active' };
+  if (sl.includes('avslutad'))                             return { cls: 'badge-avslutad',  cardCls: 'avslutad', label: 'Completed' };
+  if (sl.includes('definitiv'))                            return { cls: 'badge-definitiv', cardCls: '', label: 'Confirmed' };
+  if (sl.includes('bekräftad') || sl.includes('bekraftad'))return { cls: 'badge-bekraftad', cardCls: '', label: 'Confirmed' };
+  return { cls: 'badge-preliminar', cardCls: '', label: s || 'Scheduled' };
+}
+
+function fmtTime(dt) {
+  if (!dt) return '–';
+  const m = dt.replace('T',' ').match(/(\d{2}:\d{2})/);
+  return m ? m[1] : '–'; // Return dash if no time pattern found
+}
+
+function dirInfo(v) {
+  const ank = isAnkomst(v);
+  const avg = isAvgang(v);
+  if (ank && !avg) return '<span class="dir-label dir-in">↓ Arrival</span>';
+  if (avg && !ank) return '<span class="dir-label dir-out">↑ Departure</span>';
+  return '<span class="dir-label dir-intern">⇄ Internal</span>';
+}
+
+function cleanName(name) {
+  return (name || '').replace(/^fartygsnamn\s*:\s*/i, '').replace(/^ship\s*name\s*:\s*/i, '').trim();
+}
+function mtLink(v) {
+  const name = cleanName(v.name);
+  
+  const slug = name.replace(/\s+/g, '_').toUpperCase();
+
+}
+function vfLink(v) {
+  const name = cleanName(v.name);
+  // VesselFinder — name search works reliably
+  return `https://www.vesselfinder.com/?name=${encodeURIComponent(name)}`;
+}
+function myshiptLink(v) {
+  const name = cleanName(v.name);
+  return `https://www.myshiptracking.com/?mmsi=&name=${encodeURIComponent(name)}&type=&flag=`;
+}
+
+function render() {
+  const list = document.getElementById('list');
+  let vs = allVessels.filter(matchesSearch);
+  if (currentFilter === 'pagaende') vs = vs.filter(v => (v.status||'').toLowerCase().includes('pågående'));
+  if (currentFilter === 'ankomst')  vs = vs.filter(v => isAnkomst(v));
+  if (currentFilter === 'avgang')   vs = vs.filter(v => isAvgang(v));
+
+  // Stats always from all (unfiltered by search)
+  const base = allVessels;
+  document.getElementById('sTotal').textContent = base.length;
+  document.getElementById('sPag').textContent   = base.filter(v => (v.status||'').toLowerCase().includes('pågående')).length;
+
+  if (!vs.length) {
+    const isSearch = searchQuery.length > 0;
+    list.innerHTML = `<div class="state-box">
+      <div class="state-icon">${isSearch ? '🔍' : '⚓'}</div>
+      <div class="state-title">${isSearch ? `No results for "${esc(searchQuery)}"` : 'No pilotage records'}</div>
+      <div class="state-sub">${isSearch ? 'Try a different search term.' : allVessels.length === 0 ? 'No records for this date — please chill ⚓ <a href="https://app.sjofartsverket.se/pilotinfo" target="_blank">Check Lotsinfo ↗</a>' : 'No records match the selected filter.'}</div>
+    </div>`;
+    return;
+  }
+
+  // Push check for new pågående
+  checkNewArrivals(allVessels);
+
+  // Sort: pågående first, then by planned start
+  vs = [...vs].sort((a, b) => {
+    const ap = (a.status||'').toLowerCase().includes('pågående') ? 0 : 1;
+    const bp = (b.status||'').toLowerCase().includes('pågående') ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    return (a.planadStart||'').localeCompare(b.planadStart||'');
+  });
+
+  list.innerHTML = vs.map(v => {
+    const si = statusInfo(v.status);
+    const times = [
+      v.planadStart ? `<div class="time-item"><div class="time-label">Planned</div><div class="time-val">${esc(fmtTime(v.planadStart))}</div></div>` : '',
+      v.started     ? `<div class="time-item"><div class="time-label">Start</div><div class="time-val">${esc(fmtTime(v.started))}</div></div>` : '',
+      v.finished    ? `<div class="time-item"><div class="time-label">Done</div><div class="time-val">${esc(fmtTime(v.finished))}</div></div>` : '',
+    ].filter(Boolean).join('');
+
+    return `<div class="card ${si.cardCls}">
+      <div class="card-top">
+        <div class="card-name">${esc(cleanName(v.name))}</div>
+        <span class="badge ${si.cls}">Status: ${esc(si.label)}</span>
+      </div>
+      <div class="card-route">
+        ${dirInfo(v)}
+        <span class="route-from">From: ${esc(v.fran || '?')}</span>
+        <span class="route-arrow">→</span>
+        <span class="route-to">To: ${esc(v.till || '?')}</span>
+      </div>
+      ${times ? `<div class="card-times">${times}</div>` : ''}
+      <div class="card-links">
+        <a class="ext-link" href="${esc(vfLink(v))}" target="_blank" rel="noopener">🔭 VesselFinder</a>
+        <a class="ext-link" href="${esc(myshiptLink(v))}" target="_blank" rel="noopener">📡 MyShipTracking</a>
+        <a class="ext-link" href="https://www.goteborgshamn.se/operations/ankomster-avgangar/" target="_blank" rel="noopener">⚓ Port of Gbg</a>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showSkeletons() {
+  document.getElementById('list').innerHTML = Array(5).fill(0).map(() =>
+    `<div class="skeleton">
+      <div class="skel-line" style="width:60%"></div>
+      <div class="skel-line" style="width:90%"></div>
+      <div class="skel-line" style="width:45%"></div>
+    </div>`).join('');
+}
+
+const CACHE_KEY = 'pilotwatch_cache';
+const CACHE_TTL = 12 * 60 * 60 * 1000;
+const AIS_CACHE_KEY = 'pilotwatch_ais_cache';
+const AIS_CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+// iOS Safari blocks localStorage in private mode — use memory fallback
+const store = (() => {
+  let mem = {}, hasLS = false;
+  try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); hasLS = true; } catch(e) {}
+  return {
+    get(k)    { try { return hasLS ? localStorage.getItem(k) : (mem[k]||null); } catch(e) { return mem[k]||null; } },
+    set(k, v) { try { if (hasLS) localStorage.setItem(k, v); else mem[k] = v; } catch(e) { mem[k] = v; } },
+    remove(k) { try { if (hasLS) localStorage.removeItem(k); else delete mem[k]; } catch(e) { delete mem[k]; } },
+  };
+})();
+
+function saveAISCache() {
+  try { store.set(AIS_CACHE_KEY, JSON.stringify({ vessels: aisVessels, ts: Date.now() })); } catch(e) {}
+}
+
+function loadAISCache() {
+  try {
+    const raw = store.get(AIS_CACHE_KEY);
+    if (!raw) return null;
+    const { vessels, ts } = JSON.parse(raw);
+    if (Date.now() - ts > AIS_CACHE_TTL) return null;
+    return vessels;
+  } catch(e) { return null; }
+}
+
+function saveCache(date, data) {
+  try { store.set(CACHE_KEY, JSON.stringify({ date, data, ts: Date.now() })); } catch(e) {}
+}
+
+function loadCache(date) {
+  try {
+    const raw = store.get(CACHE_KEY);
+    if (!raw) return null;
+    const { date: d, data, ts } = JSON.parse(raw);
+    if (d !== date) return null;
+    if (Date.now() - ts > CACHE_TTL) return null;
+    return data;
+  } catch(e) { return null; }
+}
+
+async function load() {
+  const date = dateInput.value || todayStr();
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  document.getElementById('updatedBar').textContent = '';
+  ['sTotal','sPag'].forEach(id => document.getElementById(id).textContent = '–');
+
+  // ── 1. SHOW CACHED DATA INSTANTLY ─────────────────────
+  const cached = loadCache(date);
+  if (cached) {
+    allVessels = cached.vessels || [];
+    const ageMin = Math.round((Date.now() - cached.ts) / 60000);
+    const ageStr = ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin/60)}h ago`;
+    document.getElementById('updatedBar').textContent =
+      `⚡ Cached ${ageStr} · ${allVessels.length} pilotage records · updating 🔄`;
+    if (currentTab === 'lotsning') render();
+  } else {
+    showSkeletons();
+  }
+
+  // ── 2. START AISSTREAM IMMEDIATELY ────────────────────
+  const aisCached = loadAISCache();
+  if (aisCached) { aisVessels = aisCached; renderAIS(); }
+  else { aisVessels = {}; }
+  connectAISStream();
+
+  // ── 3. FETCH WEATHER (non-blocking) ───────────────────
+  fetchWeatherDirect();
+
+  // ── 4. FETCH PILOTAGE IN BACKGROUND ───────────────────
+  // Don't await — let it run in background so UI is never blocked
+  btn.classList.remove('spinning');
+  btn._hasLoaded = true;
+
+  fetchPilotage(date).then(() => {}).catch(() => {});
+}
+
+async function fetchPilotage(date) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(`/api/lotsinfo?date=${date}`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    allVessels = data.vessels || [];
+    saveCache(date, data);
+    const now = new Date();
+    document.getElementById('updatedBar').textContent =
+      `Updated ${now.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})} · ${allVessels.length} pilotage records · Sjöfartsverket`;
+    if (currentTab === 'lotsning') render();
+    if (data.weather) renderWeather(data.weather);
+    showToast('✓ Data updated');
+  } catch(err) {
+    // Backend failed (Netlify blocks) — try direct fetch from browser
+    await fetchPilotageDirect(date);
+  }
+}
+
+async function fetchPilotageDirect(date) {
+  try {
+    const lotsUrl = `https://app.sjofartsverket.se/pilotinfo` +
+      `?SearchFrom=${date}&__Invariant=SearchFrom` +
+      `&SearchTo=${date}&__Invariant=SearchTo` +
+      `&SelectedPilotageArea=348&SelectedPilotageStatus=` +
+      `&ShipName=&Callsign=&TableSize=100&auto=false&userAction=search`;
+    const res = await fetch(lotsUrl);
+    if (!res.ok) throw new Error('Direct fetch failed');
+    const html = await res.text();
+    const vessels = parseLotsinfoDirect(html);
+    if (vessels.length > 0) {
+      allVessels = vessels;
+      saveCache(date, { vessels, weather: null, ts: Date.now() });
+      const now = new Date();
+      document.getElementById('updatedBar').textContent =
+        `Updated ${now.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})} · ${vessels.length} pilotage records · Sjöfartsverket`;
+      if (currentTab === 'lotsning') render();
+    } else {
+      throw new Error('No vessels parsed');
+    }
+  } catch(e) {
+    const cached = loadCache(date);
+    if (!cached) {
+      document.getElementById('list').innerHTML = `<div class="state-box">
+        <div class="state-icon">⚠️</div>
+        <div class="state-title">Could not load pilotage data</div>
+        <div class="state-sub">
+          <a href="https://app.sjofartsverket.se/pilotinfo?SearchFrom=${date}&SearchTo=${date}&SelectedPilotageArea=348&TableSize=100&auto=false&userAction=search" target="_blank">Open Lotsinfo directly ↗</a>
+        </div>
+      </div>`;
+    }
+  }
+}
+
+function parseLotsinfoDirect(html) {
+  const vessels = [];
+  // Each row has cells like: "Fartygsnamn:  NEPTUNUS", "Status:  Bekräftad" etc
+  const rows = html.split(/<tr[\s>]/i).slice(1);
+
+  for (const row of rows) {
+    const cells = {};
+    const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let m;
+    while ((m = re.exec(row)) !== null) {
+      const text = m[1]
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g,'&').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();
+      // Match "Label:  Value" pattern
+      const labelMatch = text.match(/^([^:]+):\s+(.+)$/);
+      if (labelMatch) {
+        const label = labelMatch[1].trim().toLowerCase();
+        const value = labelMatch[2].trim();
+        if (label.includes('fartygsnamn')) cells.name = value;
+        else if (label.includes('status'))   cells.status = value;
+        else if (label.includes('fr\u00e5n') || label === 'fr\u00e5n') cells.fran = value;
+        else if (label === 'till')           cells.till = value;
+        else if (label.includes('best\u00e4llning')) cells.bestallningStart = value.slice(11,16);
+        else if (label.includes('planerad')) cells.planadStart = value.slice(11,16);
+        else if (label.includes('p\u00e5b\u00f6rjad')) cells.started = value.slice(11,16);
+        else if (label.includes('avslutad')) cells.finished = value.slice(11,16);
+      }
+    }
+    if (cells.name && cells.name.length > 1) vessels.push(cells);
+  }
+  return vessels;
+}
+
+// ── XSS SANITIZER ─────────────────────────────────────────
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── SEARCH ────────────────────────────────────────────────
+let searchQuery = '';
+function onSearch(val) {
+  searchQuery = val.trim().toLowerCase();
+  document.getElementById('searchClear').classList.toggle('show', val.length > 0);
+  render();
+}
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchClear').classList.remove('show');
+  searchQuery = ''; render();
+}
+function matchesSearch(v) {
+  if (!searchQuery) return true;
+  return v.name.toLowerCase().includes(searchQuery) ||
+         (v.fran||'').toLowerCase().includes(searchQuery) ||
+         (v.till||'').toLowerCase().includes(searchQuery) ||
+         (v.callsign||'').toLowerCase().includes(searchQuery);
+}
+
+// ── PUSH NOTIFICATIONS ────────────────────────────────────
+let pushEnabled = false;
+let lastSeenNames = new Set(JSON.parse(store.get('gbg-seen') || '[]'));
+
+function checkPushState() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    pushEnabled = true;
+    const b = document.getElementById('pushBtn');
+    if (b) { b.classList.add('on'); b.textContent = '🔔 On'; }
+    document.getElementById('pushBanner')?.classList.add('hidden');
+  } else if (Notification.permission === 'default') {
+    if (!store.get('dismissed-pushBanner')) {
+      document.getElementById('pushBanner')?.classList.remove('hidden');
+    }
+  }
+}
+async function enablePush() {
+  if (!('Notification' in window)) { showToast('Push not supported in this browser'); return; }
+  const p = await Notification.requestPermission();
+  if (p === 'granted') {
+    pushEnabled = true;
+    const b = document.getElementById('pushBtn');
+    if (b) { b.classList.add('on'); b.textContent = '🔔 On'; }
+    document.getElementById('pushBanner')?.classList.add('hidden');
+    try { await navigator.serviceWorker.register('/gbg-sw.js'); } catch(e) {}
+    showToast('🔔 Notifications enabled!');
+  }
+}
+function togglePush() {
+  if (pushEnabled) showToast('Disable in browser settings → notifications');
+  else enablePush();
+}
+function dismissBanner(id) {
+  document.getElementById(id)?.classList.add('hidden');
+  store.set('dismissed-' + id, '1');
+}
+
+function checkNewArrivals(vessels) {
+  if (!pushEnabled) return;
+  const pagaende = vessels.filter(v => (v.status||'').toLowerCase().includes('pågående'));
+  for (const v of pagaende) {
+    const key = v.name + '_' + (v.planadStart||'');
+    if (!lastSeenNames.has(key)) {
+      lastSeenNames.add(key);
+      store.set('gbg-seen', JSON.stringify([...lastSeenNames].slice(-50)));
+      new Notification(`⚓ ${esc(v.name)}`, {
+        body: `Active pilotage · ${esc(v.fran||'?')} → ${esc(v.till||'?')}`,
+        icon: '/gbg-icon-192.svg',
+        tag: 'gbg-' + v.name,
+      });
+    }
+  }
+}
+
+// ── SERVICE WORKER ────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/gbg-sw.js').catch(() => {});
+}
+
+checkPushState();
+load(); // load() handles: cache → pilotage → AISStream → weather
+
+// ── AUTO-REFRESH ──────────────────────────────────────────
+// Only auto-refresh when viewing today's date
+setInterval(() => {
+  if (dateInput.value === todayStr()) load();
+}, 3 * 60 * 1000);
+</script>
+</body>
+</html>
