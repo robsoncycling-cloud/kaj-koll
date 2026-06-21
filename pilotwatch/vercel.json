@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "regions": ["fra1"],
+  "functions": {
+    "api/*.js": { "maxDuration": 15 }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/$1" }
+  ]
+}
